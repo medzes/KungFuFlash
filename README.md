@@ -6,6 +6,13 @@ Cartridge for the Commodore 64 that packs a punch.
 Kung Fu Flash can emulate different cartridge types, load PRG files and use D64 disk images.
 Just place your desired CRT, PRG or D64 files on a FAT formatted microSD card and use the built-in launcher to execute them.
 
+This version is cloned from KimJorgensen/KungFuFlash, and has the following changes:
+- Replaced LQFP-64 by LQFP-100 version, allowing for STM32F405RG or STM32F407VG. Probably compatible with a STM32H7 400Mhz part too.
+- Kim tells me you do need to select a 1MB flash version (RG or VG) for full functionality.
+- I replaced the 2 resitor networks by 8 SMD resistors (separate is cheaper at jclpcb)
+- I added the DMA pin to PD0.
+- Todo: plenty of gpios to be connected to IEC, Tape, LCD, and so on.
+
 ## Hardware
 There are three buttons on the cartridge; a reset button, a menu button for starting the launcher, and a special button that is used by the freezer cartridges.
 
