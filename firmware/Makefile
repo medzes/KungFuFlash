@@ -85,8 +85,10 @@ MCU = $(CPU) -mthumb $(FPU) $(FLOAT-ABI)
 AS_DEFS =
 
 # C defines
+# DEVEBOX enables the alternative 100-pin version for the DEVEBOX F407VGT6 development board. 
 C_DEFS =  \
 -DSTM32F405xx \
+-DDEVEBOX \
 -D${type}
 
 # AS includes

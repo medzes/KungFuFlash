@@ -20,6 +20,16 @@
 
 #define MENU_RAM_SIGNATURE  "KungFu:Menu"
 
+#ifdef DEVEBOX
+#define GPIO_ADDRESSBUS GPIOE
+#define GPIO_DATABUS GPIOD
+#define GPIO_DATABUS_LANE 1
+#else
+#define GPIO_ADDRESSBUS GPIOB
+#define GPIO_DATABUS GPIOC
+#define GPIO_DATABUS_LANE 0
+#endif
+
 static inline void set_menu_signature(void)
 {
     memcpy(scratch_buf, MENU_RAM_SIGNATURE, sizeof(MENU_RAM_SIGNATURE));
@@ -41,79 +51,111 @@ static inline void invalidate_menu_signature(void)
 *************************************************/
 static inline uint32_t c64_addr_read()
 {
-    return GPIOB->IDR;
+    return GPIO_ADDRESSBUS->IDR;
 }
 
 static void c64_address_config(void)
 {
     // Make GPIOB input
-    GPIOB->MODER = 0;
+    GPIO_ADDRESSBUS->MODER = 0;
 
     // Set output low
-    GPIOB->ODR = 0;
+    GPIO_ADDRESSBUS->ODR = 0;
 
     // Set GPIOB to low speed
-    GPIOB->OSPEEDR = 0;
+    GPIO_ADDRESSBUS->OSPEEDR = 0;
 
     // No pull-up, pull-down
-    GPIOB->PUPDR = 0;
+    GPIO_ADDRESSBUS->PUPDR = 0;
 }
 
 /*************************************************
-* C64 data bus on PC0-PC7
+* C64 data bus on PC0-PC7 (or PD8-PD15)
 * Returned as 32 bit value for performance
 *************************************************/
 static inline uint32_t c64_data_read()
 {
-    return GPIOC->IDR;
+    return (uint32_t) (*((volatile uint8_t *)&GPIO_DATABUS->IDR + GPIO_DATABUS_LANE));
 }
 
 static inline void c64_data_write(uint8_t data)
 {
-    // Make PC0-PC7 outout
-    *((volatile uint16_t *)&GPIOC->MODER) = 0x5555;
+    // Make PC0-PC7 (or PD8-15) output
+    *((volatile uint16_t *)&GPIO_DATABUS->MODER + GPIO_DATABUS_LANE) = 0x5555;
 
-    *((volatile uint8_t *)&GPIOC->ODR) = data;
+    *((volatile uint8_t *)&GPIO_DATABUS->ODR + GPIO_DATABUS_LANE) = data;
     __DMB();
 }
 
 static inline void c64_data_input(void)
 {
-    // Make PC0-PC7 input
-    *((volatile uint16_t *)&GPIOC->MODER) = 0x0000;
+    // Make PC0-PC7 (or PD8-15) input
+    *((volatile uint16_t *)&GPIO_DATABUS->MODER + GPIO_DATABUS_LANE) = 0x0000;
     __DMB();
 }
 
 static void c64_data_config(void)
 {
-    // Make PC0-PC7 input
+    // Make PC0-PC7 (or PD8-15) input
     c64_data_input();
 }
 
 /*************************************************
-* C64 control bus on PA0-PA3 and PA6-PA7
-* Menu button & special button on PA4 & PA5
+* C64 control bus on PA0-PA3 and PA6-PA7 (or PC0-4,PC6-PC7,PC13)
+* Menu button & special button on PA4 & PA5 (or PC4, PC5)
 * Returned as 32 bit value for performance
 *************************************************/
-#define C64_WRITE   0x01    // R/W on PA0
-#define C64_IO1     0x02    // IO1 on PA1
-#define C64_IO2     0x04    // IO1 on PA2
-#define C64_BA      0x08    // BA on PA3
-#define MENU_BTN    0x10    // Menu button on PA4
-#define SPECIAL_BTN 0x20    // Special button on PA5
-#define C64_ROML    0x40    // ROML on PA6
-#define C64_ROMH    0x80    // ROMH on PA7
+#ifdef DEVEBOX
+#define GPIO_CONTROL GPIOC
+#define C64_WRITE_POS   0    // R/W on PC0
+#define C64_IO1_POS     1    // IO1 on PC1
+#define C64_IO2_POS     2    // IO2 on PC2
+#define C64_BA_POS      3    // BA on PC3
+#define MENU_BTN_POS    4    // Menu button on PC4, needs to be PA4/PB4/PC4/PD4?
+#define SPECIAL_BTN_POS 13   // Special button on PC13
+#define C64_ROML_POS    6    // ROML on PC6
+#define C64_ROMH_POS    7    // ROMH on PC7
+#define MENU_BTN_INT_PORT SYSCFG_EXTICR2_EXTI4_PC
+#else
+#define GPIO_CONTROL GPIOA
+#define C64_WRITE_POS   0    // R/W on PA0
+#define C64_IO1_POS     1    // IO1 on PA1
+#define C64_IO2_POS     2    // IO2 on PA2
+#define C64_BA_POS      3    // BA on PA3
+#define MENU_BTN_POS    4    // Menu button on PA4
+#define SPECIAL_BTN_POS 5    // Special button on PA5
+#define C64_ROML_POS    6    // ROML on PA6
+#define C64_ROMH_POS    7    // ROMH on PA7
+#define MENU_BTN_INT_PORT SYSCFG_EXTICR2_EXTI4_PA
+#endif
+#define C64_WRITE   (1UL<<C64_WRITE_POS)
+#define C64_IO1     (1UL<<C64_IO1_POS)
+#define C64_IO2     (1UL<<C64_IO2_POS)
+#define C64_BA      (1UL<<C64_BA_POS)
+#define MENU_BTN    (1UL<<MENU_BTN_POS)
+#define SPECIAL_BTN (1UL<<SPECIAL_BTN_POS)
+#define C64_ROML    (1UL<<C64_ROML_POS)
+#define C64_ROMH    (1UL<<C64_ROMH_POS)
 
 static inline uint32_t c64_control_read()
 {
-    return GPIOA->IDR;
+    return GPIO_CONTROL->IDR;
 }
 
 static void c64_control_config(void)
 {
+    GPIO_CONTROL->MODER &= ~(
+      (3UL<<C64_WRITE_POS*2) |
+      (3UL<<C64_IO1_POS*2) |
+      (3UL<<C64_IO2_POS*2) |
+      (3UL<<C64_BA_POS*2) |
+      (3UL<<C64_ROML_POS*2) |
+      (3UL<<C64_ROMH_POS*2)
+    );
+ 		
     // Make PA0-PA3 and PA6-PA7 input
-    GPIOA->MODER &= ~(GPIO_MODER_MODER0|GPIO_MODER_MODER1|GPIO_MODER_MODER2|
-                      GPIO_MODER_MODER3|GPIO_MODER_MODER6|GPIO_MODER_MODER7);
+//    GPIO_CONTROL->MODER &= ~(GPIO_MODER_MODER0|GPIO_MODER_MODER1|GPIO_MODER_MODER2|
+//                      GPIO_MODER_MODER3|GPIO_MODER_MODER6|GPIO_MODER_MODER7);
 }
 
 // Wait until the raster beam is in the upper or lower border (if VIC-II is enabled)
@@ -130,75 +172,140 @@ static void c64_sync_with_vic(void)
 }
 
 /*************************************************
-* C64 GAME and EXROM on PC14 & PC15
-* Status LED on PC13
+* C64 GAME and EXROM on PC14 & PC15 (or PD0-1,PD2)
+* Status LED on PC13 (or PA1)
 *************************************************/
+
+#ifdef DEVEBOX
+#define GPIO_OTHER GPIOD
+#define C64_GAME_HIGH   GPIO_BSRR_BS0
+#define C64_GAME_LOW    GPIO_BSRR_BR0
+#define C64_EXROM_HIGH  GPIO_BSRR_BS1
+#define C64_EXROM_LOW   GPIO_BSRR_BR1
+#define C64_DMA_HIGH    GPIO_BSRR_BS3
+#define C64_DMA_LOW     GPIO_BSRR_BR3
+#define C64_GAME_POS    0
+#define C64_EXROM_POS   1
+#define C64_DMA_POS     3
+
+#define GPIO_STATUS_LED    GPIOA
+// Status led on PA1 can't be written at the same time as GAME/EXROM on PD. 
+// This could be changed, using PA2,3,4 for GAME/EXROM/DMA or using PD6 for led.
+#define STATUS_LED_ON      (0)
+#define STATUS_LED_OFF     (0)
+#define OPT_STATUS_LED_ON  GPIO_BSRR_BR1
+#define OPT_STATUS_LED_OFF GPIO_BSRR_BS1
+#define STATUS_LED_POS     1
+#else
+#define GPIO_OTHER GPIOC
 #define C64_GAME_HIGH   GPIO_BSRR_BS14
 #define C64_GAME_LOW    GPIO_BSRR_BR14
 #define C64_EXROM_HIGH  GPIO_BSRR_BS15
 #define C64_EXROM_LOW   GPIO_BSRR_BR15
+#define C64_GAME_POS    14
+#define C64_EXROM_POS   15
+// DMA pin is not supported on pcb rev2.
+#define C64_DMA_HIGH    (0)
+#define C64_DMA_LOW     (0)
+#define C64_DMA_POS     -1
 
+#define GPIO_STATUS_LED GPIOC
 #define STATUS_LED_ON   GPIO_BSRR_BR13
 #define STATUS_LED_OFF  GPIO_BSRR_BS13
-
+#define OPT_STATUS_LED_ON   GPIO_BSRR_BR13
+#define OPT_STATUS_LED_OFF  GPIO_BSRR_BS13
+#define STATUS_LED_POS  13
+#endif
 static inline void c64_crt_control(uint32_t state)
 {
-    GPIOC->BSRR = state;
+    GPIO_OTHER->BSRR = state;
 }
 
 static inline void led_off(void)
 {
-    c64_crt_control(STATUS_LED_OFF);
+    GPIO_STATUS_LED->BSRR = OPT_STATUS_LED_OFF;
 }
 
 static inline void led_on(void)
 {
-    c64_crt_control(STATUS_LED_ON);
+    GPIO_STATUS_LED->BSRR = OPT_STATUS_LED_ON;
 }
 
 static inline void led_toggle(void)
 {
-    GPIOC->ODR ^= GPIO_ODR_OD13;
+    GPIO_STATUS_LED->ODR ^= (1UL<<STATUS_LED_POS);
 }
 
 static void c64_crt_config(void)
 {
     // Cartridge inactive
-    c64_crt_control(STATUS_LED_OFF|C64_GAME_HIGH|C64_EXROM_HIGH);
+    led_off();
+    c64_crt_control(C64_GAME_HIGH | C64_EXROM_HIGH | C64_DMA_HIGH);
 
-    // Set PC14 & PC15 as open-drain
-    GPIOC->OTYPER |= GPIO_OTYPER_OT14|GPIO_OTYPER_OT15;
+    // Set PC14 & PC15 (or PD0,PD1,PD3) as open-drain
+    GPIO_OTHER->OTYPER |= 
+     (1UL<<C64_GAME_POS) |
+     (1UL<<C64_EXROM_POS) |
+     ((C64_DMA_POS>=0) ? (1UL<<C64_DMA_POS) : 0);
 
-    // Set PC13-PC15 as output
-    MODIFY_REG(GPIOC->MODER, GPIO_MODER_MODER13|GPIO_MODER_MODER14|GPIO_MODER_MODER15,
-               GPIO_MODER_MODER13_0|GPIO_MODER_MODER14_0|GPIO_MODER_MODER15_0);
+    // Set PC13-PC15 (or PD0,PD1,PD3, PA1) as output 
+    MODIFY_REG(GPIO_STATUS_LED->MODER, (3UL<<STATUS_LED_POS*2), (1UL<<STATUS_LED_POS*2));
+    MODIFY_REG(GPIO_OTHER->MODER,
+        (3UL<<C64_GAME_POS*2) |
+        (3UL<<C64_EXROM_POS*2) |
+        ((C64_DMA_POS>=0) ? (3UL<<C64_DMA_POS*2) : 0),
+        (1UL<<C64_GAME_POS*2) |
+        (1UL<<C64_EXROM_POS*2) |
+        ((C64_DMA_POS>=0) ? (1UL<<C64_DMA_POS*2) : 0));
 }
 
 /*************************************************
-* C64 IRQ and NMI on PA9 & PA10
+* C64 IRQ and NMI on PA9 & PA10 (or PD4,PD5)
 *************************************************/
-#define C64_IRQ_HIGH        GPIO_BSRR_BS9
-#define C64_IRQ_LOW         GPIO_BSRR_BR9
-#define C64_NMI_HIGH        GPIO_BSRR_BS10
-#define C64_NMI_LOW         GPIO_BSRR_BR10
+#ifdef DEVEBOX
+#define GPIO_INTERRUPT GPIOD
+#define C64_IRQ_HIGH        GPIO_BSRR_BS4
+#define C64_IRQ_LOW         GPIO_BSRR_BR4
+#define C64_IRQ_POS         4
+#define C64_NMI_HIGH        GPIO_BSRR_BS5
+#define C64_NMI_LOW         GPIO_BSRR_BR5
+#define C64_NMI_POS         5
 #define C64_IRQ_NMI_HIGH    (C64_IRQ_HIGH|C64_NMI_HIGH)
 #define C64_IRQ_NMI_LOW     (C64_IRQ_LOW|C64_NMI_LOW)
+#else
+#define GPIO_INTERRUPT GPIOA
+#define C64_IRQ_HIGH        GPIO_BSRR_BS9
+#define C64_IRQ_LOW         GPIO_BSRR_BR9
+#define C64_IRQ_POS         9
+#define C64_NMI_HIGH        GPIO_BSRR_BS10
+#define C64_NMI_LOW         GPIO_BSRR_BR10
+#define C64_NMI_POS         10
+#define C64_IRQ_NMI_HIGH    (C64_IRQ_HIGH|C64_NMI_HIGH)
+#define C64_IRQ_NMI_LOW     (C64_IRQ_LOW|C64_NMI_LOW)
+#endif
 
 static inline void c64_irq_nmi(uint32_t state)
 {
-    GPIOA->BSRR = state;
+    GPIO_INTERRUPT->BSRR = state;
 }
 
 static void c64_irq_config(void)
 {
     c64_irq_nmi(C64_IRQ_NMI_HIGH);
 
-    // Set PA9 & PA10 as open-drain
-    GPIOA->OTYPER |= GPIO_OTYPER_OT9|GPIO_OTYPER_OT10;
+    // Set PA9 & PA10 (or PD4, PD5) as open-drain
+    GPIO_INTERRUPT->OTYPER |= (
+      (1UL<<C64_IRQ_POS) |
+      (1UL<<C64_NMI_POS)
+    );
 
-    // Set PA9 & PA10 as output
-    MODIFY_REG(GPIOA->MODER, GPIO_MODER_MODER9|GPIO_MODER_MODER10,
-                GPIO_MODER_MODER9_0|GPIO_MODER_MODER10_0);
+    // Set PA9 & PA10 (or PD4, PD5) as output
+    MODIFY_REG(GPIO_INTERRUPT->MODER, 
+      (3UL<<C64_IRQ_POS*2) | 
+      (3UL<<C64_NMI_POS*2),
+      (1UL<<C64_IRQ_POS*2) | 
+      (1UL<<C64_NMI_POS*2)
+    );
 }
 
 /*************************************************
@@ -542,24 +649,39 @@ static void c64_interface(bool state)
 }
 
 /*************************************************
-* C64 reset on PA15
+* C64 reset on PA15 (or PD6)
+* Reset is inverted externally with a drive transistor in PCB rev2.
 *************************************************/
+#ifdef DEVEBOX
+#define GPIO_RESET     GPIOD
+#define C64_RESET_ON   GPIO_BSRR_BR6
+#define C64_RESET_OFF  GPIO_BSRR_BS6
+#define C64_RESET_POS  6
+#define C64_RESET_INVERT 0
+#else
+#define GPIO_RESET     GPIOA
+#define C64_RESET_ON   GPIO_BSRR_BS15
+#define C64_RESET_OFF  GPIO_BSRR_BR15
+#define C64_RESET_POS  15
+#define C64_RESET_INVERT 1
+#endif
+
 static inline void c64_reset(bool state)
 {
     if (state)
     {
-        GPIOA->BSRR = GPIO_BSRR_BS15;
+        GPIO_RESET->BSRR = C64_RESET_ON;
         delay_us(200); // Make sure that the C64 is reset
     }
     else
     {
-        GPIOA->BSRR = GPIO_BSRR_BR15;
+        GPIO_RESET->BSRR = C64_RESET_OFF;
     }
 }
 
 static inline bool c64_is_reset(void)
 {
-    return (GPIOA->ODR & GPIO_ODR_OD15) != 0;
+    return C64_RESET_INVERT ^ ((GPIO_RESET->ODR & (1UL << C64_RESET_POS)) == 0);
 }
 
 static void c64_enable(void)
@@ -578,16 +700,27 @@ static void c64_reset_config(void)
 {
     c64_reset(true);
 
-    // Set PA15 as output
-    MODIFY_REG(GPIOA->MODER, GPIO_MODER_MODER15, GPIO_MODER_MODER15_0);
+    // Set PD6 as open-drain if non-inverting
+    if(!C64_RESET_INVERT) {
+		GPIO_RESET->OTYPER |= (
+		  (1UL<<C64_RESET_POS)
+		);
+	}
+
+    // Set PA15 (or PD6) as output
+    MODIFY_REG(GPIO_RESET->MODER, 
+       (3UL << C64_RESET_POS*2),
+       (1UL << C64_RESET_POS*2)
+    );
 }
 
 /*************************************************
 * Menu button and special button on PA4 & PA5
 *************************************************/
+
 static inline bool menu_button(void)
 {
-    return (GPIOA->IDR & GPIO_IDR_ID4) != 0;
+    return (GPIO_CONTROL->IDR & (1UL<<MENU_BTN_POS)) != 0;
 }
 
 static void menu_button_wait_release(void)
@@ -597,7 +730,7 @@ static void menu_button_wait_release(void)
 
 static inline bool special_button(void)
 {
-    return (GPIOA->IDR & GPIO_IDR_ID5) != 0;
+    return (GPIO_CONTROL->IDR & (1UL<<SPECIAL_BTN_POS)) != 0;
 }
 
 static void special_button_wait_release(void)
@@ -616,18 +749,25 @@ void EXTI4_IRQHandler(void)
 
 static void button_config(void)
 {
-    // Make PA4 and PA5 input
-    GPIOA->MODER &= ~(GPIO_MODER_MODER4|GPIO_MODER_MODER5);
+    // Make PA4 and PA5 (or PC4,PC13) input
+    GPIO_CONTROL->MODER &= ~(
+      (3UL<<MENU_BTN_POS*2)|
+      (3UL<<SPECIAL_BTN_POS*2)
+    );
 
     // Enable pull-down
-    MODIFY_REG(GPIOA->PUPDR, GPIO_PUPDR_PUPD4|GPIO_PUPDR_PUPD5,
-               GPIO_PUPDR_PUPD4_1|GPIO_PUPDR_PUPD5_1);
-
-    // Enable EXTI4 interrupt on PA4
-    MODIFY_REG(SYSCFG->EXTICR[1], SYSCFG_EXTICR2_EXTI4, SYSCFG_EXTICR2_EXTI4_PA);
+    MODIFY_REG(GPIO_CONTROL->PUPDR, 
+      (3UL<<MENU_BTN_POS*2)|
+      (3UL<<SPECIAL_BTN_POS*2),
+      (2UL<<MENU_BTN_POS*2)|
+      (2UL<<SPECIAL_BTN_POS*2)
+    );
+    
+    // Enable EXTI4 interrupt on PA4 (or PC4)
+    MODIFY_REG(SYSCFG->EXTICR[1], SYSCFG_EXTICR2_EXTI4, MENU_BTN_INT_PORT);
     EXTI->IMR |= EXTI_IMR_MR4;
 
-    // Rising edge trigger on PA4
+    // Rising edge trigger on PA4 (or PC4)
     EXTI->RTSR |= EXTI_RTSR_TR4;
     EXTI->FTSR &= ~EXTI_FTSR_TR4;
 

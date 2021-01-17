@@ -181,6 +181,13 @@ static void restart_to_menu(void)
     system_restart();
 }
 
+#ifdef DEVEBOX
+#define GPIO_CLOCK_DOMAINS (RCC_AHB1ENR_GPIOAEN | RCC_AHB1ENR_GPIOBEN | \
+        RCC_AHB1ENR_GPIOCEN | RCC_AHB1ENR_GPIODEN | RCC_AHB1ENR_GPIOEEN)
+#else
+#define GPIO_CLOCK_DOMAINS (RCC_AHB1ENR_GPIOAEN | RCC_AHB1ENR_GPIOBEN | \
+        RCC_AHB1ENR_GPIOCEN | RCC_AHB1ENR_GPIODEN)
+#endif
 /************************************************/
 static void configure_system(void)
 {
@@ -192,9 +199,8 @@ static void configure_system(void)
     RCC->APB2ENR |= RCC_APB2ENR_SYSCFGEN;
     __DSB();
 
-    // Enable GPIOA, GPIOB, GPIOC, and GPIOD clock
-    RCC->AHB1ENR |= RCC_AHB1ENR_GPIOAEN|RCC_AHB1ENR_GPIOBEN|
-                    RCC_AHB1ENR_GPIOCEN|RCC_AHB1ENR_GPIODEN;
+    // Enable GPIOA, GPIOB, GPIOC, GPIOD, and GPIOE clock
+    RCC->AHB1ENR |= GPIO_CLOCK_DOMAINS;
     __DSB();
 
     crc_config();

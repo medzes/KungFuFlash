@@ -221,6 +221,9 @@ static uint8_t crt_program_file(FIL *crt_file, uint16_t cartridge_type)
     bool sector_erased[8] = {0};
 
     memset(dat_buffer, 0xff, sizeof(dat_buffer));
+    
+    // Device flash size in kB, divided in 16kB banks
+    uint8_t flash_banks = *((uint16_t *) FLASHSIZE_BASE) / 16;
 
     while (!f_eof(crt_file))
     {
@@ -254,7 +257,7 @@ static uint8_t crt_program_file(FIL *crt_file, uint16_t cartridge_type)
         }
 
         // Place image in flash
-        if (header.bank >= 4 && header.bank < 64)
+        if (header.bank >= 4 && header.bank < flash_banks)
         {
             uint8_t *flash_ptr = flash_buffer + offset;
             int8_t sector_to_erase = -1;
@@ -271,7 +274,7 @@ static uint8_t crt_program_file(FIL *crt_file, uint16_t cartridge_type)
                                  header.image_size);
         }
         // Skip image
-        else if (header.bank >= 64)
+        else if (header.bank >= flash_banks)
         {
             wrn("No room for CRT chip bank %u at $%x\n",
                 header.bank, header.start_address);
@@ -627,6 +630,7 @@ static bool c64_set_mode(void)
             crt_ptr = crt_banks[0];
 
             uint32_t state = STATUS_LED_ON;
+            
             if (dat_file.crt.exrom)
             {
                 state |= C64_EXROM_HIGH;
