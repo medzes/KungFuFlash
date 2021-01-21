@@ -18,16 +18,22 @@
  * 3. This notice may not be removed or altered from any source distribution.
  */
 
-#define DIR_NAME_LENGTH 34
+#define DIR_NAME_LENGTH 36
 #define ELEMENT_LENGTH 38
 #define MAX_ELEMENTS_PAGE 22
+#define SEARCH_LENGTH 26
+
+// Use non-breaking spaces as first character in dir name
+#define SEARCH_SUPPORTED 0xa0
+#define CLEAR_SEARCH     0xe0
 
 // Use non-breaking spaces as first character for element type
 #define SELECTED_ELEMENT 0xa0
 #define TEXT_ELEMENT     0xe0
 
-#define BASIC_CMD_BUF_SIZE 80
-#define SAVE_BUFFER_OFFSET 0x70
+#define BASIC_CMD_BUF_SIZE  80
+#define LOADING_OFFSET      0x80
+#define SAVE_BUFFER_OFFSET  0x70
 
 typedef enum {
     CMD_NONE = 0x00,

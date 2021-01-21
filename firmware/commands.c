@@ -23,7 +23,7 @@ static void c64_ef3_read(void *buffer, size_t size)
 {
     uint8_t *buf_ptr = (uint8_t *)buffer;
 
-    while (size--)
+    for (; size; size--)
     {
         uint8_t c = ef3_getc();
         *buf_ptr++ = c;
@@ -34,7 +34,7 @@ static void c64_ef3_write(const void *buffer, size_t size)
 {
     const uint8_t *buf_ptr = (const uint8_t *)buffer;
 
-    while (size--)
+    for (; size; size--)
     {
         ef3_putc(*buf_ptr++);
     }
@@ -121,6 +121,16 @@ static inline bool c64_send_wait_for_reset(void)
     }
 
     return false;
+}
+
+static char sanitize_char(char c)
+{
+    if (c == '\r' || c == '\n')
+    {
+        c = '_';
+    }
+
+    return c;
 }
 
 static char petscii_to_ascii(char c)
@@ -211,6 +221,51 @@ static bool c64_send_text(const char *cmd, const void *text)
     return true;
 }
 
+// From https://sta.c64.org/cbm64pettoscr.html
+static char * convert_to_screen_code(char *dest, const char *src)
+{
+    while (*src)
+    {
+        char c = *src++;
+        if (c <= 0x1f)
+        {
+            c |= 0x80;
+        }
+        else if (c <= 0x3f)
+        {
+            // No conversion
+        }
+        else if (c <= 0x5f)
+        {
+            c &= ~0x40;
+        }
+        else if (c <= 0x7f)
+        {
+            c &= ~0x20;
+        }
+        else if (c <= 0x9f)
+        {
+            c |= 0x40;
+        }
+        else if (c <= 0xbf)
+        {
+            c &= ~0x40;
+        }
+        else if (c <= 0xfe)
+        {
+            c &= ~0x80;
+        }
+        else
+        {
+            c = 0x5e;
+        }
+
+        *dest++ = c;
+    }
+
+    return dest;
+}
+
 static bool c64_send_message(const char *text)
 {
     dbg("Sending message \"%s\"\n", text);
@@ -243,6 +298,13 @@ static inline uint8_t c64_receive_byte(void)
 static inline void c64_receive_data(void *buffer, size_t size)
 {
     c64_ef3_read(buffer, size);
+}
+
+static void c64_receive_string(char *buffer)
+{
+    uint8_t size = c64_receive_byte();
+    c64_receive_data(buffer, size);
+    buffer[size] = 0;
 }
 
 static inline bool c64_got_command(void)
