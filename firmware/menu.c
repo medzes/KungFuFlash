@@ -212,6 +212,10 @@ static void handle_file_options(const char *file_name, uint8_t file_type, uint8_
             mount_text = "Load"; // No mount
             break;
 
+        case FILE_ROM:
+            select_text = "Use as kernal";
+            break;
+
         default:
             select_text = "Select";
             break;

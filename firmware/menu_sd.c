@@ -622,6 +622,19 @@ static bool handle_load_file(SD_STATE *state, const char *file_name,
         }
         break;
 
+        case FILE_ROM:
+        {
+			FIL file;
+			handle_file_open(&file, file_name);
+            if(file_read(&file, CRT_KERNAL, 8*1024) != 8*1024) {
+				break;
+			}			
+			file_close(&file);
+			dat_file.boot_type = DAT_KERNAL;
+			exit_menu = true;
+        }
+        break;
+
         case FILE_UPD:
         {
             if (!(flags & SELECT_FLAG_ACCEPT))

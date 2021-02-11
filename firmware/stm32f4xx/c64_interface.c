@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2020 Kim Jørgensen
+ * Copyright (c) 2019-2021 Kim Jørgensen, Marko Edzes
  *
  * This software is provided 'as-is', without any express or implied
  * warranty.  In no event will the authors be held liable for any damages
@@ -17,6 +17,29 @@
  *    misrepresented as being the original software.
  * 3. This notice may not be removed or altered from any source distribution.
  */
+
+/* 
+ * Marko Edzes: The code below is chagned to allow compile-time choice of GPIO banks and pin positions
+ * for the KungFuFlash rev.2 PCB and the DEVEBOX prototype from the Makefile.
+ * Furthermore, the Timer 1 interrupt time position is split into Kernal mode and non-Kernal mode for easier modification.
+ * 
+ * The DEVEBOX comes with a LED on PA1. That's on a different GPIO bank than the other control signals on PD. 
+ * For DEVEBOX the led is only toggled in non-critical code sections.
+ * 
+ * DEVEBOX uses PD8-PD15 for the databus. This is just as fast for access, as long as it is accessed with ldrb/strb.
+ * To support this the databus access is 8-bit throughout the code also when compiled for rev 2 PCB.
+ * There may be minor timing differences due to this where the compiler inserts utxb's (8 to 32 bit unsigned extractions)
+ * even when they are not needed, in *different* places than the original code.
+ * In the original code there are also unneccessary utxb's. (gcc compiler quirk)
+ * 
+ * DEVEBOX has no C64-reset output inverter nor a driver transistor. This is not an issue as all pins connected to the C64 
+ * are inputs during and after ARM reset. (The C64 is likely to crash though but there is no bus conflict)
+ * 
+ * DEVEBOX connects the DMA line.
+ */
+
+// The following definition forces reliable gcc code inlining when compiling with -Os.
+#define INLINE inline __attribute__((always_inline))
 
 #define MENU_RAM_SIGNATURE  "KungFu:Menu"
 
@@ -42,14 +65,14 @@ static inline bool menu_signature(void)
 
 static inline void invalidate_menu_signature(void)
 {
-    scratch_buf[0] = 0;
+    *((uint32_t *)scratch_buf) = 0;
 }
 
 /*************************************************
-* C64 address bus on PB0-PB15
+* C64 address bus on PB0-PB15 (or PE0-PE15)
 * Returned as 32 bit value for performance
 *************************************************/
-static inline uint32_t c64_addr_read()
+static INLINE uint32_t c64_addr_read()
 {
     return GPIO_ADDRESSBUS->IDR;
 }
@@ -73,12 +96,12 @@ static void c64_address_config(void)
 * C64 data bus on PC0-PC7 (or PD8-PD15)
 * Returned as 32 bit value for performance
 *************************************************/
-static inline uint32_t c64_data_read()
+static INLINE uint32_t c64_data_read()
 {
     return (uint32_t) (*((volatile uint8_t *)&GPIO_DATABUS->IDR + GPIO_DATABUS_LANE));
 }
 
-static inline void c64_data_write(uint8_t data)
+static INLINE void c64_data_write(uint8_t data)
 {
     // Make PC0-PC7 (or PD8-15) output
     *((volatile uint16_t *)&GPIO_DATABUS->MODER + GPIO_DATABUS_LANE) = 0x5555;
@@ -87,7 +110,7 @@ static inline void c64_data_write(uint8_t data)
     __DMB();
 }
 
-static inline void c64_data_input(void)
+static INLINE void c64_data_input(void)
 {
     // Make PC0-PC7 (or PD8-15) input
     *((volatile uint16_t *)&GPIO_DATABUS->MODER + GPIO_DATABUS_LANE) = 0x0000;
@@ -111,7 +134,7 @@ static void c64_data_config(void)
 #define C64_IO1_POS     1    // IO1 on PC1
 #define C64_IO2_POS     2    // IO2 on PC2
 #define C64_BA_POS      3    // BA on PC3
-#define MENU_BTN_POS    4    // Menu button on PC4, needs to be PA4/PB4/PC4/PD4?
+#define MENU_BTN_POS    4    // Menu button on PC4, to be compatible with the EXTI4 code.
 #define SPECIAL_BTN_POS 13   // Special button on PC13
 #define C64_ROML_POS    6    // ROML on PC6
 #define C64_ROMH_POS    7    // ROMH on PC7
@@ -144,6 +167,7 @@ static inline uint32_t c64_control_read()
 
 static void c64_control_config(void)
 {
+    // Make PA0-PA3 and PA6-PA7 input (or PC0-4, PC6-7, PC13)
     GPIO_CONTROL->MODER &= ~(
       (3UL<<C64_WRITE_POS*2) |
       (3UL<<C64_IO1_POS*2) |
@@ -151,11 +175,7 @@ static void c64_control_config(void)
       (3UL<<C64_BA_POS*2) |
       (3UL<<C64_ROML_POS*2) |
       (3UL<<C64_ROMH_POS*2)
-    );
- 		
-    // Make PA0-PA3 and PA6-PA7 input
-//    GPIO_CONTROL->MODER &= ~(GPIO_MODER_MODER0|GPIO_MODER_MODER1|GPIO_MODER_MODER2|
-//                      GPIO_MODER_MODER3|GPIO_MODER_MODER6|GPIO_MODER_MODER7);
+    ); 		
 }
 
 // Wait until the raster beam is in the upper or lower border (if VIC-II is enabled)
@@ -190,13 +210,15 @@ static void c64_sync_with_vic(void)
 
 #define GPIO_STATUS_LED    GPIOA
 // Status led on PA1 can't be written at the same time as GAME/EXROM on PD. 
-// This could be changed, using PA2,3,4 for GAME/EXROM/DMA or using PD6 for led.
+// So for DEVEBOX the STATUS_LED_ON/STATUS_LED_OFF macros do nothing.
 #define STATUS_LED_ON      (0)
 #define STATUS_LED_OFF     (0)
 #define OPT_STATUS_LED_ON  GPIO_BSRR_BR1
 #define OPT_STATUS_LED_OFF GPIO_BSRR_BS1
 #define STATUS_LED_POS     1
+
 #else
+
 #define GPIO_OTHER GPIOC
 #define C64_GAME_HIGH   GPIO_BSRR_BS14
 #define C64_GAME_LOW    GPIO_BSRR_BR14
@@ -216,22 +238,28 @@ static void c64_sync_with_vic(void)
 #define OPT_STATUS_LED_OFF  GPIO_BSRR_BS13
 #define STATUS_LED_POS  13
 #endif
-static inline void c64_crt_control(uint32_t state)
+
+static INLINE void c64_crt_control(uint32_t state)
 {
     GPIO_OTHER->BSRR = state;
 }
 
-static inline void led_off(void)
+static INLINE void led_off(void)
 {
     GPIO_STATUS_LED->BSRR = OPT_STATUS_LED_OFF;
 }
 
-static inline void led_on(void)
+static INLINE void led_on(void)
 {
     GPIO_STATUS_LED->BSRR = OPT_STATUS_LED_ON;
 }
 
-static inline void led_toggle(void)
+static INLINE void led_set(uint32_t state)
+{
+    GPIO_STATUS_LED->BSRR = (state == 0 ? OPT_STATUS_LED_OFF : OPT_STATUS_LED_ON);
+}
+
+static INLINE void led_toggle(void)
 {
     GPIO_STATUS_LED->ODR ^= (1UL<<STATUS_LED_POS);
 }
@@ -257,6 +285,13 @@ static void c64_crt_config(void)
         (1UL<<C64_GAME_POS*2) |
         (1UL<<C64_EXROM_POS*2) |
         ((C64_DMA_POS>=0) ? (1UL<<C64_DMA_POS*2) : 0));
+        
+    // Default game, exrom, dma outputs slow.
+    GPIO_OTHER->OSPEEDR &= ~(
+        (3UL<<C64_GAME_POS*2) |
+        (3UL<<C64_EXROM_POS*2) |
+        ((C64_DMA_POS>=0) ? (3UL<<C64_DMA_POS*2) : 0)
+	);
 }
 
 /*************************************************
@@ -284,7 +319,7 @@ static void c64_crt_config(void)
 #define C64_IRQ_NMI_LOW     (C64_IRQ_LOW|C64_NMI_LOW)
 #endif
 
-static inline void c64_irq_nmi(uint32_t state)
+static INLINE void c64_irq_nmi(uint32_t state)
 {
     GPIO_INTERRUPT->BSRR = state;
 }
@@ -371,14 +406,17 @@ static void c64_clock_config()
 #define NTSC_PHI2_INT       (NTSC_PHI2_HIGH - 41)
 #define NTSC_PHI2_LOW       142
 
-#define PAL_PHI2_HIGH       98
+#define PAL_PHI2_HIGH       96
 #define PAL_PHI2_INT        (PAL_PHI2_HIGH - 43)
 #define PAL_PHI2_LOW        149
+
+// Kernal timing is separate for easier modification
+#define PAL_PHI2_KERNAL_INT (PAL_PHI2_HIGH - 33)
 
 // C64_VIC_BUS_HANDLER timing
 #ifdef NTSC
 
-#define PHI2_CPU_START      96
+#define PHI2_CPU_START      94
 #define PHI2_WRITE_DELAY    126
 #define PHI2_CPU_END        NTSC_PHI2_LOW
 
@@ -560,7 +598,7 @@ void name(void)                                                                 
     /* Set TIM1_CC_IRQHandler vector */                 \
     ((uint32_t *)0x00000000)[43] = (uint32_t)handler
 
-static inline bool c64_is_ntsc(void)
+static INLINE bool c64_is_ntsc(void)
 {
     return TIM1->CCR1 < 167;
 }
@@ -577,22 +615,31 @@ static inline bool c64_fw_supports_crt(void)
 /*************************************************
 * C64 interface status
 *************************************************/
+// Returns if the C64 interface is up and running
 static inline bool c64_interface_active(void)
 {
     return (TIM1->DIER & TIM_DIER_CC3IE) != 0;
 }
 
-static void c64_interface(bool state)
+// Enables and disables the ARM interrupt on PHI2. 
+// When disabled, the C64 can keep running normally, but no cartridge,
+// soft-kernal or easyflash register reads/writes can be done.
+
+typedef enum {INTERFACE_OFF =0, INTERFACE_NORMAL, INTERFACE_KERNAL} interface_t;
+
+static interface_t current_interface_timing;
+static void c64_interface(interface_t state)
 {
-    if (!state)
+    if (state==INTERFACE_OFF)
     {
         // Capture/Compare 3 interrupt disable
         TIM1->DIER &= ~TIM_DIER_CC3IE;
         TIM1->SR = ~TIM_SR_CC3IF;
+        current_interface_timing = INTERFACE_OFF;
         return;
     }
 
-    if (c64_interface_active())
+    if (current_interface_timing == state)
     {
         return;
     }
@@ -635,12 +682,11 @@ static void c64_interface(bool state)
     }
     else
     {
-        // PAL timing
-        TIM1->CCR3 = PAL_PHI2_INT;     // generate interrupt before phi2 is high
-
-        // Abuse COMPx registers for better performance
-        DWT->COMP0 = PAL_PHI2_HIGH;    // after phi2 is high
-        DWT->COMP1 = PAL_PHI2_LOW;     // before phi2 is low
+		// PAL timing: interrupt timing before phi2 is high
+		TIM1->CCR3 = (state == INTERFACE_KERNAL) ? PAL_PHI2_KERNAL_INT : PAL_PHI2_INT;
+		// Abuse COMPx registers for better performance
+		DWT->COMP0 = PAL_PHI2_HIGH;    // after phi2 is high
+		DWT->COMP1 = PAL_PHI2_LOW;     // before phi2 is low
     }
 
     // Capture/Compare 3 interrupt enable
@@ -650,7 +696,7 @@ static void c64_interface(bool state)
 
 /*************************************************
 * C64 reset on PA15 (or PD6)
-* Reset is inverted externally with a drive transistor in PCB rev2.
+* Reset is inverted externally with a drive transistor in PCB rev2. Reset is not inverted in DEVEBOX.
 *************************************************/
 #ifdef DEVEBOX
 #define GPIO_RESET     GPIOD
@@ -666,6 +712,7 @@ static void c64_interface(bool state)
 #define C64_RESET_INVERT 1
 #endif
 
+// Enable or disable the reset line towards the C64
 static inline void c64_reset(bool state)
 {
     if (state)
@@ -681,15 +728,19 @@ static inline void c64_reset(bool state)
 
 static inline bool c64_is_reset(void)
 {
-    return C64_RESET_INVERT ^ ((GPIO_RESET->ODR & (1UL << C64_RESET_POS)) == 0);
+    return (GPIO_RESET->ODR & (1UL << C64_RESET_POS)) == (C64_RESET_INVERT ? (1UL << C64_RESET_POS) : 0);
 }
 
+// Turn the C64 cartridge interface on, and then let the C64 start.
+// Does not change EXROM/GAME state.
 static void c64_enable(void)
 {
     c64_interface(true);
     c64_reset(false);
 }
 
+// Turn the C64 cartridge interface off, and then force the C64 in reset state.
+// Does not change EXROM/GAME state.
 static void c64_disable(void)
 {
     c64_interface(false);
@@ -718,7 +769,7 @@ static void c64_reset_config(void)
 * Menu button and special button on PA4 & PA5
 *************************************************/
 
-static inline bool menu_button(void)
+static INLINE bool menu_button(void)
 {
     return (GPIO_CONTROL->IDR & (1UL<<MENU_BTN_POS)) != 0;
 }
@@ -728,7 +779,7 @@ static void menu_button_wait_release(void)
     while (menu_button());
 }
 
-static inline bool special_button(void)
+static INLINE bool special_button(void)
 {
     return (GPIO_CONTROL->IDR & (1UL<<SPECIAL_BTN_POS)) != 0;
 }

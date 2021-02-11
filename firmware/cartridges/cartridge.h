@@ -29,7 +29,9 @@
 #define CRT_RAM1_BANK(bank)     (crt_ram_buf + (uint32_t)(8*1024 * bank))
 #define CRT_RAM2_BANK(bank)     ((uint8_t *)scratch_buf + (uint32_t)(8*1024 * bank))
 
+#define CRT_KERNAL ((uint8_t *)scratch_buf + (uint32_t)(8*1024))
 static uint8_t crt_ram_buf[16*1024];
+
 static uint8_t *crt_ptr;        // Current ROM or RAM bank pointer
 static uint8_t *crt_rom_ptr;    // Current ROM bank pointer (only used by some cartridges)
 

@@ -337,6 +337,9 @@ static inline void c64_send_reply(uint8_t reply)
     c64_send_data(&reply, 1);
 }
 
+// Send a command to exit the main menu to the C64. 
+// The C64 then sends a close (two 00 bytes) and waits for the next command bytes. This C64 waiting routine is in RAM,
+// so the C64 cartridge interface can be temporarily disabled after an exit_menu.
 static void c64_send_exit_menu(void)
 {
     c64_send_reply(REPLY_EXIT_MENU);

@@ -19,6 +19,7 @@
  */
 
 #define DAT_FILENAME "/KungFuFlash.dat"
+#define KERNAL_FILENAME "/kernal.bin"
 #define FW_NAME_SIZE 20
 
 #define CRT_SIGNATURE "C64 CARTRIDGE   "
@@ -34,6 +35,8 @@ static inline bool prg_size_valid(uint16_t size)
     return size > 2;
 }
 
+// Load a file from SD card to the dat_buffer.
+// Returns false on any error
 static bool prg_load_file(FIL *file)
 {
     uint16_t len = file_read(file, dat_buffer, sizeof(dat_buffer));
@@ -49,6 +52,9 @@ static bool prg_load_file(FIL *file)
     return false;
 }
 
+// Load a P00 file from SD card to the dat_buffer. The P00 header signature is checked.
+// The filename from the P00 header is kept for C64 display.
+// Returns false on any error.
 static bool p00_load_file(FIL *file)
 {
     P00_HEADER header;
@@ -71,6 +77,7 @@ static bool p00_load_file(FIL *file)
     return false;
 }
 
+// Load a CRT file header. The CRT file signature is checked.
 static bool crt_load_header(FIL *file, CRT_HEADER *header)
 {
     uint32_t len = file_read(file, header, sizeof(CRT_HEADER));
@@ -313,6 +320,7 @@ static bool crt_write_chip(FIL *file, uint8_t bank, uint16_t address, uint16_t s
     return file_write(file, buf, size) == size;
 }
 
+// Check if a Flash region is empty. After a flash erase, all bits in a bank should be one.
 static bool crt_bank_empty(uint8_t *buf, uint16_t size)
 {
     uint32_t *buf32 = (uint32_t *)buf;
@@ -417,6 +425,8 @@ static bool mount_sd_card(void)
     return dir_change("/");
 }
 
+// Load the KungFuFlash DAT file. This stores the first 64kB of data that is in ARM SRAM, and is loaded and saved
+// to the SD card during ARM startup and when the DAT contents are modified.
 static bool load_dat(void)
 {
     bool result = true;
@@ -571,7 +581,7 @@ static void send_prg(void)
         name = scratch_buf;
     }
 
-    basic_loading(name);
+    basic_loading(name);    
     if(!c64_send_prg(dat_buffer, dat_file.prg.size))
     {
         system_restart();
@@ -593,12 +603,37 @@ static bool load_d64(void)
     return true;
 }
 
+// Load the default kernal rom from sd
+// Returns false on any error
+static bool load_kernal()
+{
+    bool result = true;
+    FIL file;
+    if (!file_open(&file, KERNAL_FILENAME, FA_READ) ||
+        (file_read(&file, CRT_KERNAL, 8*1024) != 8*1024))
+    {
+        wrn(KERNAL_FILENAME " file not found or invalid\n");
+        result = false;
+    }
+
+    file_close(&file);
+    if(result == false) return result;
+	kernal_init(CRT_PORT_ULTIMAX); // start in easyflash and kernal enabled mode.
+	c64_interface(INTERFACE_KERNAL);
+	c64_reset(false);
+    return result;
+}
+
+
 static void c64_launcher_mode(void)
 {
     crt_ptr = CRT_LAUNCHER_BANK;
     crt_install_handler(CRT_EASYFLASH, CRT_FLAG_NONE);
 }
 
+// Switch the C64 cartrige interface between the supported modes.
+// The C64 is not in reset when this function is called.
+// Returns false on any problem.
 static bool c64_set_mode(void)
 {
     bool result = false;
@@ -610,7 +645,10 @@ static bool c64_set_mode(void)
             result = prg_size_valid(dat_file.prg.size);
             if (result)
             {
-                c64_enable();
+				c64_disable();
+				if(!load_kernal()) {
+					c64_enable();
+				}
                 send_prg();
             }
         }
@@ -699,15 +737,17 @@ static bool c64_set_mode(void)
             }
 
             c64_disable();
-            ef_init();
-
+            
             // Copy Launcher to memory to allow bank switching in EasyFlash emulation
             // BASIC commands to run are placed at the start of flash ($8000)
             uint32_t offset = BASIC_CMD_BUF_SIZE;
             memcpy(crt_banks[0] + offset, CRT_LAUNCHER_BANK + offset, 16*1024 - offset);
             crt_ptr = crt_banks[0];
+            if(!load_kernal()) {
+				ef_init();
+				c64_enable();
+			}
 
-            c64_enable();
             if (!c64_send_mount_disk())
             {
                 system_restart();
@@ -720,6 +760,9 @@ static bool c64_set_mode(void)
         {
             c64_disable();
             // Unstoppable reset! - https://www.c64-wiki.com/wiki/Reset_Button
+            // To avoid problems where some programs leave a CBM80 header in C64 RAM, the cartridge mode is
+            // briefly enabled during the phase that the C64 reset routine checks for the header.
+            // After that EXROM is disabled, but the easyflash API is still on in $DE00/$DF00
             c64_crt_control(STATUS_LED_ON|CRT_PORT_8K);
             c64_enable();
             delay_ms(300);
@@ -731,7 +774,9 @@ static bool c64_set_mode(void)
         case DAT_KILL:
         {
             c64_disable();
-            // Also unstoppable!
+            // This is also unstoppable. The trick used here is that EXROM is active, but the C64 interface is not enabled.
+            // As a result, accesses to $8000 will see floating data lines, which don't match the CBM80 header.
+            // After the reset routine EXROM is disabled allowing normal DRAM access.
             c64_crt_control(STATUS_LED_OFF|CRT_PORT_8K);
             c64_reset(false);
             delay_ms(300);
@@ -748,6 +793,23 @@ static bool c64_set_mode(void)
             result = true;
         }
         break;
+
+        case DAT_KERNAL:
+        {
+            c64_disable();
+            // unstoppable reset for the soft-kernal too
+            kernal_init(CRT_PORT_8K);
+            c64_interface(INTERFACE_KERNAL);
+            c64_reset(false);
+            delay_ms(300);
+			// Technically calling kernal_init is not a good idea while the interrupt is enabled.
+			// But it is done only once here and the chance of an interrupt during
+			// the init is very small.
+            kernal_init(CRT_PORT_NONE); 
+            result = true;
+        }
+        break;
+
     }
 
     return result;

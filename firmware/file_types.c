@@ -123,6 +123,13 @@ static uint8_t get_file_type(FILINFO *info)
                 return FILE_UPD;
             }
         }
+        else if (compare_extension(filename, "ARM"))
+        {
+            if (info->fsize == sizeof(dat_buffer))
+            {
+                return FILE_ARM;
+            }
+		}
         else if (compare_extension(filename, "DAT"))
         {
             if (info->fsize == (sizeof(DAT_HEADER) + sizeof(dat_buffer)))

@@ -22,7 +22,7 @@ LAUNCHER = $(LAUNCHER_DIR)build/KungFuLauncher_v$(version)_$(type).bin
 # debug build?
 DEBUG = 0 #1
 # optimization
-OPT = -O2 #-Og
+OPT = -Os #-O2 #-Og
 
 #######################################
 # paths
@@ -88,7 +88,7 @@ AS_DEFS =
 # DEVEBOX enables the alternative 100-pin version for the DEVEBOX F407VGT6 development board. 
 C_DEFS =  \
 -DSTM32F405xx \
--DDEVEBOX \
+#-DDEVEBOX \
 -D${type}
 
 # AS includes

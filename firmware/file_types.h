@@ -131,7 +131,8 @@ typedef enum {
     FILE_D64_PRG,
     FILE_ROM,
 
-    FILE_UPD        = 0xfd,
+    FILE_ARM        = 0xfc,
+    FILE_UPD,
     FILE_DAT,
     FILE_UNKNOWN
 } FILE_TYPE;
@@ -155,7 +156,8 @@ typedef enum {
     DAT_KERNAL,
     DAT_BASIC,
     DAT_KILL,
-    DAT_KILL_C128
+    DAT_KILL_C128,
+    DAT_ARM
 } DAT_BOOT_TYPE;
 
 typedef enum {

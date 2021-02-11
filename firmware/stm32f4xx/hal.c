@@ -23,6 +23,9 @@
 #include "diskio.c"
 #include "usb.c"
 #include "flash.c"
+#ifdef LCD
+#include "lcd_st7735.c"
+#endif
 
 /*************************************************
 * Configure system clock to 168 MHz
